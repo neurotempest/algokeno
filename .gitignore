@@ -1,0 +1,6 @@
+*.sw*
+*.pyc
+.DS_Store
+
+build
+tilt_modules
