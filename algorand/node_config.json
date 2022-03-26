@@ -1,0 +1,8 @@
+{
+	"Version": 19,
+	"GossipFanout": 1,
+	"IncomingConnectionsLimit": 0,
+	"DNSBootstrapID": "",
+  "EndpointAddress": "0.0.0.0:4001",
+	"EnableProfiler": true
+}

@@ -1,0 +1,13 @@
+FROM golang:alpine
+
+ENV HOME /opt/indexer
+WORKDIR /opt/indexer
+
+RUN apk add --update make bash libtool git python3 autoconf automake g++ boost-dev
+
+RUN git clone --single-branch --branch master --depth 1 https://github.com/algorand/indexer /opt/indexer
+
+RUN make
+
+ADD run_indexer.sh /opt/indexer/run_indexer.sh
+ADD algod.token /opt/indexer/algod.token
