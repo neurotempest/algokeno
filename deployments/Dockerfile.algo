@@ -1,4 +1,4 @@
-FROM docker.io/algorand/stable:3.2.1@sha256:0a87978492680fd98e2cc410f59f2bfd7fef979f035eb060685d56a6e916b5bd
+FROM docker.io/algorand/stable:3.5.1@sha256:734c230ace50b8e8d706e2aa072c4f761a2442d9922a13b9ab41676637edc1fc
 
 RUN mkdir -p /setup
 ADD goal_template.json /setup/

@@ -4,5 +4,6 @@
 	"IncomingConnectionsLimit": 0,
 	"DNSBootstrapID": "",
   "EndpointAddress": "0.0.0.0:4001",
-	"EnableProfiler": true
+	"EnableProfiler": true,
+  "EnableDeveloperAPI": true
 }
