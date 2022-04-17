@@ -1,4 +1,4 @@
-#pragma version 5
+#pragma version 6
 txn ApplicationID
 int 0
 ==
@@ -25,7 +25,8 @@ int NoOp
 bnz main_l7
 err
 main_l7:
-int 0
+callsub commit_2
+int 1
 return
 main_l8:
 int 0
@@ -50,6 +51,9 @@ init_0:
 byte "owner"
 txn Sender
 app_global_put
+byte "numTickets"
+int 0
+app_global_put
 int 1
 return
 
@@ -60,8 +64,59 @@ byte "wager"
 int 0
 app_local_put
 int 0
-byte "numbers"
+byte "commitment"
 byte base64()
 app_local_put
+int 1
+return
+
+// commit
+commit_2:
+global GroupSize
+int 2
+==
+txn GroupIndex
+int 0
+==
+&&
+gtxn 0 RekeyTo
+global ZeroAddress
+==
+&&
+gtxn 1 RekeyTo
+global ZeroAddress
+==
+&&
+gtxn 1 TypeEnum
+int pay
+==
+&&
+gtxn 1 Receiver
+global CurrentApplicationAddress
+==
+&&
+gtxn 1 CloseRemainderTo
+global ZeroAddress
+==
+&&
+txn NumAppArgs
+int 2
+==
+&&
+assert
+txn Sender
+byte "wager"
+gtxn 1 Amount
+app_local_put
+txn Sender
+byte "commitment"
+txna ApplicationArgs 1
+app_local_put
+byte "numTickets"
+byte "numTickets"
+app_global_get
+int 1
++
+app_global_put
 int 1
 return

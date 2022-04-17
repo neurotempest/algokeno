@@ -7,16 +7,20 @@ import (
 	"flag"
 	"fmt"
 	"encoding/base64"
-	"crypto/ed25519"
+	"encoding/binary"
 	"log"
+	"strconv"
 
 	"github.com/algorand/go-algorand-sdk/client/kmd"
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/client/v2/indexer"
+	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
 	"github.com/algorand/go-algorand-sdk/crypto"
 	"github.com/algorand/go-algorand-sdk/future"
 	"github.com/algorand/go-algorand-sdk/types"
 	"github.com/stretchr/testify/require"
+
+	"encoding/ascii85"
 )
 
 var (
@@ -27,33 +31,254 @@ var (
 	indexerHost = flag.String("indexer_host", "http://localhost:4003", "Host of indexer client")
 )
 
+func TestContract(t *testing.T) {
+
+	creator := crypto.GenerateAccount()
+	acc1 := crypto.GenerateAccount()
+	acc2 := crypto.GenerateAccount()
+	acc3 := crypto.GenerateAccount()
+
+	appID := fundAccountsAndDeployContract(t, creator, acc1, acc2, acc3)
+
+	fmt.Println("Creator:")
+	fmt.Println("addr:", creator.Address.String())
+	fmt.Println("pub key:", base64.StdEncoding.EncodeToString(creator.PublicKey))
+	fmt.Println("priv key:", base64.StdEncoding.EncodeToString(creator.PrivateKey))
+
+	testCases := []struct{
+		Name string
+		Txs []TxCreator
+		Sender crypto.Account
+		ExpectTxBroadcastError bool
+		ExpectedLocalState map[string]string
+		ExpectedGlobalState map[string]string
+	}{
+		{
+			Name: "inital global state",
+			ExpectedGlobalState: map[string]string{
+				"owner": base64.StdEncoding.EncodeToString(creator.PublicKey),
+				"numTickets": "0",
+			},
+		},
+		{
+			Name: "opt-in to app",
+			Txs: []TxCreator{
+				TxAppOptIn{
+					AppID: appID,
+					Sender: acc1,
+				},
+			},
+			Sender: acc1,
+			ExpectedLocalState: map[string]string{
+				"wager": "0",
+				"commitment": "",
+			},
+			ExpectedGlobalState: map[string]string{
+				"owner": base64.StdEncoding.EncodeToString(creator.PublicKey),
+				"numTickets": "0",
+			},
+		},
+		{
+			Name: "calling commit without payment tx throws broadcast error",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc1,
+					Method: "Commit",
+					Args: [][]byte{
+						[]byte("abcdef"),
+					},
+				},
+			},
+			Sender: acc1,
+			ExpectTxBroadcastError: true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.Name, func(t *testing.T) {
+
+			if test.ExpectTxBroadcastError {
+				requireTxBroadcastError(t, test.Txs...)
+				return
+			}
+
+			if len(test.Txs) > 0 {
+				broadcastTxsAndWait(t, test.Txs...)
+			}
+
+			if len(test.ExpectedLocalState) > 0 {
+				localState := getAppLocalState(t, appID, test.Sender.Address)
+				require.Equal(t, test.ExpectedLocalState, localState)
+			}
+
+			if len(test.ExpectedGlobalState) > 0 {
+				globalState := getAppGlobalState(t, appID)
+				require.Equal(t, test.ExpectedGlobalState, globalState)
+			}
+		})
+	}
+}
+
+func fundAccountsAndDeployContract(t *testing.T, creator crypto.Account, accounts ...crypto.Account) uint64 {
+
+	kmdAcc := getKMDAccount(t)
+
+	var txs []TxCreator
+	txs = append(txs, TxPayment{
+		From: kmdAcc,
+		To: creator.Address,
+		Amount: 1000000,
+	})
+
+	for _, acc := range accounts {
+		txs = append(txs, TxPayment{
+			From: kmdAcc,
+			To: acc.Address,
+			Amount: 1000000,
+		})
+	}
+
+	txs = append(txs, TxAppDeploy{
+		Creator: creator,
+		ApprovalPath: "../contract/approval.teal",
+		ClearPath: "../contract/clear.teal",
+		GlobalUints: 1,
+		GlobalByteSlices: 1,
+		LocalUints: 1,
+		LocalByteSlices:1,
+	})
+
+	txIDs := broadcastTxsAndWait(t, txs...)
+
+	algodCl := algodClient(t)
+	pendingRes, _, err := algodCl.PendingTransactionInformation(txIDs[len(txIDs)-1]).Do(context.Background())
+	require.NoError(t, err)
+
+	return pendingRes.ApplicationIndex
+}
+
 
 func TestDeployContract(t *testing.T) {
 
 	ownerAccount := crypto.GenerateAccount()
 	otherAccount := crypto.GenerateAccount()
 
+	fmt.Println("Other acc:")
+	fmt.Println(otherAccount.Address)
+	fmt.Println(base64.StdEncoding.EncodeToString(otherAccount.PublicKey))
+	fmt.Println(base64.StdEncoding.EncodeToString(otherAccount.PrivateKey))
+
 	fmt.Println(ownerAccount.Address.String())
 
 	log.Println("funding...")
-	fundMultipleAccountsFromKMDAccount(t, 1000000, ownerAccount, otherAccount)
+	appID := fundAccountsAndDeployContract(t, ownerAccount, otherAccount)
 
-	log.Println("deploying...")
-	appID := deployContract(
+
+	log.Println(otherAccount.Address, "opting_in to", appID, "...")
+	broadcastTxsAndWait(
 		t,
-		ownerAccount,
-		"../contract/approval.teal",
-		"../contract/clear.teal",
-		0,
-		1,
-		1,
-		1,
+		TxAppOptIn{
+			AppID: appID,
+			Sender: otherAccount,
+		},
 	)
 
-	log.Println(otherAccount.Address, "opting_in...")
-	appOptIn(t, appID, otherAccount)
+	amt := uint64(120000)
+
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, amt)
+
+	log.Println(otherAccount.Address, "calling Commit...")
+	broadcastTxsAndWait(
+		t,
+		TxAppCall{
+			AppID: appID,
+			Method: "Commit",
+			Args: [][]byte{
+				[]byte("abcdef"),
+			},
+			Sender: otherAccount,
+		},
+		TxPayment{
+			From: otherAccount,
+			To: crypto.GetApplicationAddress(appID),
+			Amount: amt,
+		},
+	)
+
 }
 
+func TestPokeExisting(t *testing.T) {
+
+	addr, err := types.DecodeAddress("KSHZJX64NLFOIQFJIDYULNR37THQ3EHEVVPR2EJ2C2VB7YBSN625PJM5GE")
+	require.NoError(t, err)
+	pubk, err := base64.StdEncoding.DecodeString("VI+U39xqyuRAqUDxRbY7/M8NkOStXx0ROhaqH+Ayb7U=")
+	require.NoError(t, err)
+	privk, err := base64.StdEncoding.DecodeString("u+Eb7y2VolnhQvEYE/fNdKmieRhY9Y/ckSeLX9NVgldUj5Tf3GrK5ECpQPFFtjv8zw2Q5K1fHRE6Fqof4DJvtQ==")
+	require.NoError(t, err)
+
+	acc := crypto.Account{
+		Address: addr,
+		PublicKey: pubk,
+		PrivateKey: privk,
+	}
+
+	appID := uint64(63)
+
+	fmt.Println("app addr:", crypto.GetApplicationAddress(appID))
+
+	broadcastTxsAndWait(
+		t,
+		TxAppCall{
+			AppID: appID,
+			Method: "Commit",
+			Args: [][]byte{
+				[]byte("ZZoo=="),
+			},
+			Sender: acc,
+		},
+		TxPayment{
+			From: acc,
+			To: crypto.GetApplicationAddress(appID),
+			Amount: 100000,
+		},
+	)
+
+	algod := algodClient(t)
+
+	accAppInfo, err := algod.AccountApplicationInformation(acc.Address.String(), appID).Do(context.Background())
+	require.NoError(t, err)
+
+	appInfo, err := algod.GetApplicationByID(appID).Do(context.Background())
+
+	fmt.Println("accAppInfo:")
+	fmt.Println(" - AppId:", accAppInfo.AppLocalState.Id)
+	fmt.Println(" - locals (key,val):", accAppInfo.AppLocalState.KeyValue)
+
+	for _, loc := range accAppInfo.AppLocalState.KeyValue {
+
+		key, err := base64.StdEncoding.DecodeString(loc.Key)
+		require.NoError(t, err)
+
+		var strVal string
+		if loc.Value.Type == 1 {
+			tmp, err := base64.StdEncoding.DecodeString(loc.Value.Bytes)
+			require.NoError(t, err)
+			strVal = string(tmp)
+		} else if loc.Value.Type == 2 {
+			strVal = strconv.FormatUint(loc.Value.Uint, 10)
+		} else {
+			require.Fail(t, "Unknown type")
+		}
+
+		fmt.Println(string(key), strVal)
+
+	}
+
+	fmt.Println("appGlobalState:", appInfo.Params.GlobalState)
+
+}
 
 func algodClient(t *testing.T) *algod.Client {
 
@@ -111,137 +336,6 @@ func getKMDAccount(t *testing.T) crypto.Account {
 	return kmdAccount
 }
 
-func fundMultipleAccountsFromKMDAccount(t *testing.T, amount uint64, accounts ...crypto.Account) {
-
-	kmdAcc := getKMDAccount(t)
-
-	algod := algodClient(t)
-	txParams, err := algod.SuggestedParams().Do(context.Background())
-	require.NoError(t, err)
-
-	var txGroupBuilder future.AtomicTransactionComposer
-
-	for _, acc := range accounts {
-		tx, err := future.MakePaymentTxn(
-			kmdAcc.Address.String(),
-			acc.Address.String(),
-			amount,
-			[]byte("inital funding"),
-			"",
-			txParams,
-		)
-		require.NoError(t, err)
-
-		txGroupBuilder.AddTransaction(
-			future.TransactionWithSigner{
-				Txn: tx,
-				Signer: future.BasicAccountTransactionSigner{
-					Account: kmdAcc,
-				},
-			},
-		)
-	}
-
-	_, err = txGroupBuilder.Execute(algod, context.Background(), 2)
-	require.NoError(t, err)
-}
-
-func deployContract(
-	t *testing.T,
-	creatorAcc crypto.Account,
-	approvalPath string,
-	clearPath string,
-	// TODO: Parse the teal progs to figure out how many local/global vars are needed... not sure why algod can't figure this out automatically.
-	numGlobalUints uint64,
-	numGlobalByteSlices uint64,
-	numLocalUints uint64,
-	numLocalByteSlices uint64,
-) uint64 {
-
-	approvalProg := compileTeal(t,approvalPath)
-	clearProg := compileTeal(t,clearPath)
-
-	algod := algodClient(t)
-	txParams, err := algod.SuggestedParams().Do(context.Background())
-	require.NoError(t, err)
-
-	tx, err := future.MakeApplicationCreateTx(
-		false,
-		approvalProg,
-		clearProg,
-		types.StateSchema{
-			NumUint: numGlobalUints,
-			NumByteSlice: numGlobalByteSlices,
-		},
-		types.StateSchema{
-			NumUint: numLocalUints,
-			NumByteSlice: numLocalByteSlices,
-		},
-		nil,
-		nil,
-		nil,
-		nil,
-		txParams,
-		creatorAcc.Address,
-		nil,
-		types.Digest{},
-		[32]byte{},
-		types.Address{},
-	)
-	require.NoError(t, err)
-
-	var txGroupBuilder future.AtomicTransactionComposer
-	txGroupBuilder.AddTransaction(
-		future.TransactionWithSigner{
-			Txn: tx,
-			Signer: future.BasicAccountTransactionSigner{
-				Account: creatorAcc,
-			},
-		},
-	)
-	execRes, err := txGroupBuilder.Execute(algod, context.Background(), 2)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(execRes.TxIDs))
-
-	pendignRes, _, err := algod.PendingTransactionInformation(execRes.TxIDs[0]).Do(context.Background())
-	require.NoError(t, err)
-
-	return pendignRes.ApplicationIndex
-}
-
-func appOptIn(t *testing.T, appID uint64, acc crypto.Account) {
-
-	algod := algodClient(t)
-	txParams, err := algod.SuggestedParams().Do(context.Background())
-	require.NoError(t, err)
-
-	tx, err := future.MakeApplicationOptInTx(
-		appID,
-		nil,
-		nil,
-		nil,
-		nil,
-		txParams,
-		acc.Address,
-		nil,
-		types.Digest{},
-		[32]byte{},
-		types.Address{},
-	)
-
-	var txGroupBuilder future.AtomicTransactionComposer
-	txGroupBuilder.AddTransaction(
-		future.TransactionWithSigner{
-			Txn: tx,
-			Signer: future.BasicAccountTransactionSigner{
-				Account: acc,
-			},
-		},
-	)
-	_, err = txGroupBuilder.Execute(algod, context.Background(), 2)
-	require.NoError(t, err)
-}
-
 func compileTeal(t *testing.T, tealPath string) []byte {
 
 	srcBytes, err := os.ReadFile(tealPath)
@@ -254,17 +348,284 @@ func compileTeal(t *testing.T, tealPath string) []byte {
 	return prog
 }
 
-func signTxSendAndWait(t *testing.T, privKey ed25519.PrivateKey, tx types.Transaction) string {
+type TxCreator interface {
+	Create(t *testing.T) (future.TransactionWithSigner)
+}
 
-	_, signedTx, err := crypto.SignTransaction(privKey, tx)
-	require.NoError(t, err)
+type TxAppDeploy struct {
+	Creator crypto.Account
+	ApprovalPath string
+	ClearPath string
+	GlobalUints uint64
+	GlobalByteSlices uint64
+	LocalUints uint64
+	LocalByteSlices uint64
+}
+
+func (c TxAppDeploy) Create(t *testing.T) (future.TransactionWithSigner) {
+
+	appCreate := TxAppCreate{
+		ApprovalProg: compileTeal(t, c.ApprovalPath),
+		ClearProg: compileTeal(t, c.ClearPath),
+		GlobalUints: c.GlobalUints,
+		GlobalByteSlices: c.GlobalByteSlices,
+		LocalUints: c.LocalUints,
+		LocalByteSlices: c.LocalByteSlices,
+		Creator: c.Creator,
+	}
+
+	return appCreate.Create(t)
+}
+
+type TxAppCreate struct {
+	Creator crypto.Account // Tx sender will be the signer of this tx
+	OptIn bool
+	ApprovalProg []byte
+	ClearProg []byte
+	GlobalUints uint64
+	GlobalByteSlices uint64
+	LocalUints uint64
+	LocalByteSlices uint64
+	AppArgs [][]byte
+	Accounts []string
+	ForeignApps []uint64
+	ForeignAssets []uint64
+	Note []byte
+	Group types.Digest
+	Lease [32]byte
+	RekeyTo types.Address
+}
+
+func (c TxAppCreate) Create(t *testing.T) (future.TransactionWithSigner) {
 
 	algod := algodClient(t)
-	txID, err := algod.SendRawTransaction(signedTx).Do(context.Background())
+	txParams, err := algod.SuggestedParams().Do(context.Background())
 	require.NoError(t, err)
 
-	_, err = future.WaitForConfirmation(algod, txID, 4, context.Background())
+	tx, err := future.MakeApplicationCreateTx(
+		c.OptIn,
+		c.ApprovalProg,
+		c.ClearProg,
+		types.StateSchema{
+			NumUint: c.GlobalUints,
+			NumByteSlice: c.GlobalByteSlices,
+		},
+		types.StateSchema{
+			NumUint: c.LocalUints,
+			NumByteSlice: c.LocalByteSlices,
+		},
+		c.AppArgs,
+		c.Accounts,
+		c.ForeignApps,
+		c.ForeignAssets,
+		txParams,
+		c.Creator.Address,
+		c.Note,
+		c.Group,
+		c.Lease,
+		c.RekeyTo,
+	)
 	require.NoError(t, err)
 
-	return txID
+	return future.TransactionWithSigner{
+		Txn: tx,
+		Signer: future.BasicAccountTransactionSigner{
+			Account: c.Creator,
+		},
+	}
+}
+
+type TxAppOptIn struct {
+	AppID uint64
+	Args []string
+	Accounts []string
+	ForeignApps []uint64
+	ForeignAssets []uint64
+	Note []byte
+	Group types.Digest
+	Lease [32]byte
+	RekeyTo types.Address
+	Sender crypto.Account // Tx sender will be the signer of this tx
+}
+
+func (c TxAppOptIn) Create(t *testing.T) (future.TransactionWithSigner) {
+
+	algod := algodClient(t)
+	txParams, err := algod.SuggestedParams().Do(context.Background())
+	require.NoError(t, err)
+
+	var appArgs [][]byte
+	for _, arg := range c.Args {
+		appArgs = append(appArgs, []byte(arg))
+	}
+
+	tx, err := future.MakeApplicationOptInTx(
+		c.AppID,
+		appArgs,
+		c.Accounts,
+		c.ForeignApps,
+		c.ForeignAssets,
+		txParams,
+		c.Sender.Address,
+		c.Note,
+		c.Group,
+		c.Lease,
+		c.RekeyTo,
+	)
+	require.NoError(t, err)
+
+	return future.TransactionWithSigner{
+		Txn: tx,
+		Signer: future.BasicAccountTransactionSigner{
+			Account: c.Sender,
+		},
+	}
+}
+
+type TxAppCall struct {
+	AppID uint64
+	Method string
+	Args [][]byte
+	Accounts []string
+	ForeignApps []uint64
+	ForeignAssets []uint64
+	Note []byte
+	Group types.Digest
+	Lease [32]byte
+	RekeyTo types.Address
+	Sender crypto.Account // Tx sender will be the signer of this tx
+}
+
+func (c TxAppCall) Create(t *testing.T) (future.TransactionWithSigner) {
+
+	algod := algodClient(t)
+	txParams, err := algod.SuggestedParams().Do(context.Background())
+	require.NoError(t, err)
+
+	var appArgs [][]byte
+	appArgs = append(appArgs, []byte(c.Method))
+	for _, arg := range c.Args {
+		appArgs = append(appArgs, []byte(arg))
+	}
+
+	tx, err := future.MakeApplicationNoOpTx(
+		c.AppID,
+		appArgs,
+		c.Accounts,
+		c.ForeignApps,
+		c.ForeignAssets,
+		txParams,
+		c.Sender.Address,
+		c.Note,
+		c.Group,
+		c.Lease,
+		c.RekeyTo,
+	)
+	require.NoError(t, err)
+
+	return future.TransactionWithSigner{
+		Txn: tx,
+		Signer: future.BasicAccountTransactionSigner{
+			Account: c.Sender,
+		},
+	}
+}
+
+type TxPayment struct {
+	From crypto.Account // Tx signer will be the from account
+	To types.Address
+	Amount uint64
+	Note string
+	CloseRemainderTo string
+}
+
+func (c TxPayment) Create(t *testing.T) (future.TransactionWithSigner) {
+
+	algod := algodClient(t)
+	txParams, err := algod.SuggestedParams().Do(context.Background())
+	require.NoError(t, err)
+
+	tx, err := future.MakePaymentTxn(
+		c.From.Address.String(),
+		c.To.String(),
+		c.Amount,
+		[]byte(c.Note),
+		c.CloseRemainderTo,
+		txParams,
+	)
+	require.NoError(t, err)
+
+	return future.TransactionWithSigner{
+		Txn: tx,
+		Signer: future.BasicAccountTransactionSigner{
+			Account: c.From,
+		},
+	}
+}
+
+func broadcastTxsAndWait(t *testing.T, txs ...TxCreator) []string {
+
+	var txGroupBuilder future.AtomicTransactionComposer
+	for _, tx := range txs {
+		txGroupBuilder.AddTransaction(
+			tx.Create(t),
+		)
+	}
+	algod := algodClient(t)
+	execRes, err := txGroupBuilder.Execute(algod, context.Background(), 2)
+	require.NoError(t, err)
+	require.Equal(t, len(txs), len(execRes.TxIDs))
+	return execRes.TxIDs
+}
+
+func requireTxBroadcastError(t *testing.T, txs ...TxCreator) {
+
+	var txGroupBuilder future.AtomicTransactionComposer
+	for _, tx := range txs {
+		txGroupBuilder.AddTransaction(
+			tx.Create(t),
+		)
+	}
+	algod := algodClient(t)
+	_, err := txGroupBuilder.Execute(algod, context.Background(), 2)
+	require.Error(t, err)
+}
+
+func getAppLocalState(t *testing.T, appID uint64, address types.Address) map[string]string {
+
+	algodCl := algodClient(t)
+	accAppInfo, err := algodCl.AccountApplicationInformation(address.String(), appID).Do(context.Background())
+	require.NoError(t, err)
+	return getAppStateAsMap(t, accAppInfo.AppLocalState.KeyValue)
+}
+
+func getAppGlobalState(t *testing.T, appID uint64) map[string]string {
+
+	algodCl := algodClient(t)
+	appInfo, err := algodCl.GetApplicationByID(appID).Do(context.Background())
+	require.NoError(t, err)
+	return getAppStateAsMap(t, appInfo.Params.GlobalState)
+}
+
+func getAppStateAsMap(t *testing.T, state []models.TealKeyValue) map[string]string {
+
+	stateMap := make(map[string]string)
+	for _, kv := range state {
+
+		key, err := base64.StdEncoding.DecodeString(kv.Key)
+		require.NoError(t, err)
+
+		var strVal string
+		if kv.Value.Type == 1 {
+			strVal = string(kv.Value.Bytes)
+		} else if kv.Value.Type == 2 {
+			strVal = strconv.FormatUint(kv.Value.Uint, 10)
+		} else {
+			require.Fail(t, "unknown type")
+		}
+
+		stateMap[string(key)] = strVal
+	}
+
+	return stateMap
 }
