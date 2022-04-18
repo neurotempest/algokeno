@@ -2,46 +2,60 @@
 txn ApplicationID
 int 0
 ==
-bnz main_l12
+bnz main_l17
 txn OnCompletion
 int DeleteApplication
 ==
-bnz main_l11
+bnz main_l16
 txn OnCompletion
 int UpdateApplication
 ==
-bnz main_l10
+bnz main_l15
 txn OnCompletion
 int OptIn
 ==
-bnz main_l9
+bnz main_l14
 txn OnCompletion
 int CloseOut
 ==
-bnz main_l8
+bnz main_l13
 txn OnCompletion
 int NoOp
 ==
 bnz main_l7
 err
 main_l7:
-callsub commit_2
-int 1
-return
-main_l8:
-int 0
-return
-main_l9:
-callsub optin_1
-int 1
-return
+txna ApplicationArgs 0
+byte "Commit"
+==
+bnz main_l12
+txna ApplicationArgs 0
+byte "SetDraw"
+==
+bnz main_l10
+err
 main_l10:
-int 0
-return
+callsub setdraw_3
 main_l11:
 int 0
 return
 main_l12:
+callsub commit_2
+b main_l11
+main_l13:
+int 0
+return
+main_l14:
+callsub optin_1
+int 1
+return
+main_l15:
+int 0
+return
+main_l16:
+int 0
+return
+main_l17:
 callsub init_0
 int 1
 return
@@ -52,6 +66,45 @@ byte "owner"
 txn Sender
 app_global_put
 byte "numTickets"
+int 0
+app_global_put
+byte "draw"
+byte base64()
+app_global_put
+byte "1s"
+int 0
+app_global_put
+byte "2s"
+int 0
+app_global_put
+byte "3s"
+int 0
+app_global_put
+byte "4s"
+int 0
+app_global_put
+byte "5s"
+int 0
+app_global_put
+byte "6s"
+int 0
+app_global_put
+byte "1p"
+int 0
+app_global_put
+byte "2p"
+int 0
+app_global_put
+byte "3p"
+int 0
+app_global_put
+byte "4p"
+int 0
+app_global_put
+byte "5p"
+int 0
+app_global_put
+byte "6p"
 int 0
 app_global_put
 int 1
@@ -117,6 +170,83 @@ byte "numTickets"
 app_global_get
 int 1
 +
+app_global_put
+int 1
+return
+
+// set_draw
+setdraw_3:
+txn Sender
+byte "owner"
+app_global_get
+==
+global GroupSize
+int 1
+==
+&&
+txn GroupIndex
+int 0
+==
+&&
+gtxn 0 RekeyTo
+global ZeroAddress
+==
+&&
+txn NumAppArgs
+int 14
+==
+&&
+assert
+byte "draw"
+txna ApplicationArgs 1
+app_global_put
+byte "1s"
+txna ApplicationArgs 2
+btoi
+app_global_put
+byte "1p"
+txna ApplicationArgs 3
+btoi
+app_global_put
+byte "2s"
+txna ApplicationArgs 4
+btoi
+app_global_put
+byte "2p"
+txna ApplicationArgs 5
+btoi
+app_global_put
+byte "3s"
+txna ApplicationArgs 6
+btoi
+app_global_put
+byte "3p"
+txna ApplicationArgs 7
+btoi
+app_global_put
+byte "4s"
+txna ApplicationArgs 8
+btoi
+app_global_put
+byte "4p"
+txna ApplicationArgs 9
+btoi
+app_global_put
+byte "5s"
+txna ApplicationArgs 10
+btoi
+app_global_put
+byte "5p"
+txna ApplicationArgs 11
+btoi
+app_global_put
+byte "6s"
+txna ApplicationArgs 12
+btoi
+app_global_put
+byte "6p"
+txna ApplicationArgs 13
+btoi
 app_global_put
 int 1
 return

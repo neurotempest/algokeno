@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"encoding/base64"
 	"encoding/binary"
-	"log"
 	"strconv"
 
 	"github.com/algorand/go-algorand-sdk/client/kmd"
@@ -20,7 +19,7 @@ import (
 	"github.com/algorand/go-algorand-sdk/types"
 	"github.com/stretchr/testify/require"
 
-	"encoding/ascii85"
+	//"encoding/hex"
 )
 
 var (
@@ -31,14 +30,37 @@ var (
 	indexerHost = flag.String("indexer_host", "http://localhost:4003", "Host of indexer client")
 )
 
-func TestContract(t *testing.T) {
+func TestSome(t *testing.T) {
+
+	// abcdef
+	// - 6*6 bits = 36 bits
+	// - 4.5 bytes
+	//
+	// 011010
+	// 011011
+	// 011100
+	// 011101
+	// 011110
+	// 011111
+
+	// 0110 1001 1011 0111 0001 1101 0111 1001 1111
+	// 6    9    b    7    1    d    7    9    f
+
+	raw := b64StrToBytes(t, "abcdefA=")
+
+	std, _ := base64.StdEncoding.DecodeString("abcdefA=")
+
+	fmt.Printf("raw: %x\n", raw)
+	fmt.Printf("std: %x\n", std)
+
+}
+
+func TestContractCommitDraw(t *testing.T) {
 
 	creator := crypto.GenerateAccount()
 	acc1 := crypto.GenerateAccount()
-	acc2 := crypto.GenerateAccount()
-	acc3 := crypto.GenerateAccount()
 
-	appID := fundAccountsAndDeployContract(t, creator, acc1, acc2, acc3)
+	appID := fundAccountsAndDeployContract(t, creator, acc1)
 
 	fmt.Println("Creator:")
 	fmt.Println("addr:", creator.Address.String())
@@ -58,6 +80,19 @@ func TestContract(t *testing.T) {
 			ExpectedGlobalState: map[string]string{
 				"owner": base64.StdEncoding.EncodeToString(creator.PublicKey),
 				"numTickets": "0",
+				"draw": "",
+				"1p": "0",
+				"1s": "0",
+				"2p": "0",
+				"2s": "0",
+				"3p": "0",
+				"3s": "0",
+				"4p": "0",
+				"4s": "0",
+				"5p": "0",
+				"5s": "0",
+				"6p": "0",
+				"6s": "0",
 			},
 		},
 		{
@@ -76,6 +111,19 @@ func TestContract(t *testing.T) {
 			ExpectedGlobalState: map[string]string{
 				"owner": base64.StdEncoding.EncodeToString(creator.PublicKey),
 				"numTickets": "0",
+				"draw": "",
+				"1p": "0",
+				"1s": "0",
+				"2p": "0",
+				"2s": "0",
+				"3p": "0",
+				"3s": "0",
+				"4p": "0",
+				"4s": "0",
+				"5p": "0",
+				"5s": "0",
+				"6p": "0",
+				"6s": "0",
 			},
 		},
 		{
@@ -92,6 +140,116 @@ func TestContract(t *testing.T) {
 			},
 			Sender: acc1,
 			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with payment tx succeeds",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc1,
+					Method: "Commit",
+					Args: [][]byte{
+						b64StrToBytes(t, "abcdefA="),
+					},
+				},
+				TxPayment{
+					From: acc1,
+					To: crypto.GetApplicationAddress(appID),
+					Amount: 1000000,
+				},
+			},
+			Sender: acc1,
+			ExpectedLocalState: map[string]string{
+				"wager": "1000000",
+				"commitment": "abcdefA=",
+			},
+			ExpectedGlobalState: map[string]string{
+				"owner": base64.StdEncoding.EncodeToString(creator.PublicKey),
+				"numTickets": "1",
+				"draw": "",
+				"1p": "0",
+				"1s": "0",
+				"2p": "0",
+				"2s": "0",
+				"3p": "0",
+				"3s": "0",
+				"4p": "0",
+				"4s": "0",
+				"5p": "0",
+				"5s": "0",
+				"6p": "0",
+				"6s": "0",
+			},
+		},
+		{
+			Name: "non-creator calls draw fails to broadcast",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc1,
+					Method: "SetDraw",
+					Args: [][]byte{
+						b64StrToBytes(t, "abcdefA="),
+						uint64ToBytes(t, 6), // 1s
+						uint64ToBytes(t, 61),
+						uint64ToBytes(t, 5), // 2s
+						uint64ToBytes(t, 51),
+						uint64ToBytes(t, 4), // 3s
+						uint64ToBytes(t, 41),
+						uint64ToBytes(t, 3), // 4s
+						uint64ToBytes(t, 31),
+						uint64ToBytes(t, 2), // 5s
+						uint64ToBytes(t, 21),
+						uint64ToBytes(t, 1), // 6s
+						uint64ToBytes(t, 500000),
+					},
+				},
+			},
+			Sender: acc1,
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "creator sets draw succeeds",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: creator,
+					Method: "SetDraw",
+					Args: [][]byte{
+						b64StrToBytes(t, "abcdefA="),
+						uint64ToBytes(t, 6), // 1s
+						uint64ToBytes(t, 61),
+						uint64ToBytes(t, 5), // 2s
+						uint64ToBytes(t, 51),
+						uint64ToBytes(t, 4), // 3s
+						uint64ToBytes(t, 41),
+						uint64ToBytes(t, 3), // 4s
+						uint64ToBytes(t, 31),
+						uint64ToBytes(t, 2), // 5s
+						uint64ToBytes(t, 21),
+						uint64ToBytes(t, 1), // 6s
+						uint64ToBytes(t, 500000),
+					},
+				},
+			},
+			Sender: creator,
+			ExpectedGlobalState: map[string]string{
+				"owner": base64.StdEncoding.EncodeToString(creator.PublicKey),
+				"numTickets": "1",
+				"draw": "abcdefA=",
+				"1s": "6",
+				"1p": "61",
+				"2s": "5",
+				"2p": "51",
+				"3s": "4",
+				"3p": "41",
+				"4s": "3",
+				"4p": "31",
+				"5s": "2",
+				"5p": "21",
+				"6s": "1",
+				"6p": "500000",
+			},
 		},
 	}
 
@@ -128,14 +286,14 @@ func fundAccountsAndDeployContract(t *testing.T, creator crypto.Account, account
 	txs = append(txs, TxPayment{
 		From: kmdAcc,
 		To: creator.Address,
-		Amount: 1000000,
+		Amount: 2000000,
 	})
 
 	for _, acc := range accounts {
 		txs = append(txs, TxPayment{
 			From: kmdAcc,
 			To: acc.Address,
-			Amount: 1000000,
+			Amount: 2000000,
 		})
 	}
 
@@ -143,8 +301,8 @@ func fundAccountsAndDeployContract(t *testing.T, creator crypto.Account, account
 		Creator: creator,
 		ApprovalPath: "../contract/approval.teal",
 		ClearPath: "../contract/clear.teal",
-		GlobalUints: 1,
-		GlobalByteSlices: 1,
+		GlobalUints: 13,
+		GlobalByteSlices: 2,
 		LocalUints: 1,
 		LocalByteSlices:1,
 	})
@@ -159,63 +317,13 @@ func fundAccountsAndDeployContract(t *testing.T, creator crypto.Account, account
 }
 
 
-func TestDeployContract(t *testing.T) {
-
-	ownerAccount := crypto.GenerateAccount()
-	otherAccount := crypto.GenerateAccount()
-
-	fmt.Println("Other acc:")
-	fmt.Println(otherAccount.Address)
-	fmt.Println(base64.StdEncoding.EncodeToString(otherAccount.PublicKey))
-	fmt.Println(base64.StdEncoding.EncodeToString(otherAccount.PrivateKey))
-
-	fmt.Println(ownerAccount.Address.String())
-
-	log.Println("funding...")
-	appID := fundAccountsAndDeployContract(t, ownerAccount, otherAccount)
-
-
-	log.Println(otherAccount.Address, "opting_in to", appID, "...")
-	broadcastTxsAndWait(
-		t,
-		TxAppOptIn{
-			AppID: appID,
-			Sender: otherAccount,
-		},
-	)
-
-	amt := uint64(120000)
-
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, amt)
-
-	log.Println(otherAccount.Address, "calling Commit...")
-	broadcastTxsAndWait(
-		t,
-		TxAppCall{
-			AppID: appID,
-			Method: "Commit",
-			Args: [][]byte{
-				[]byte("abcdef"),
-			},
-			Sender: otherAccount,
-		},
-		TxPayment{
-			From: otherAccount,
-			To: crypto.GetApplicationAddress(appID),
-			Amount: amt,
-		},
-	)
-
-}
-
 func TestPokeExisting(t *testing.T) {
 
-	addr, err := types.DecodeAddress("KSHZJX64NLFOIQFJIDYULNR37THQ3EHEVVPR2EJ2C2VB7YBSN625PJM5GE")
+	addr, err := types.DecodeAddress("OCTAWZ77S7VISVSQREH5MONA4J5BU7SNHEL74XHVUGWNYC6U4NQGWANWTE")
 	require.NoError(t, err)
-	pubk, err := base64.StdEncoding.DecodeString("VI+U39xqyuRAqUDxRbY7/M8NkOStXx0ROhaqH+Ayb7U=")
+	pubk, err := base64.StdEncoding.DecodeString("cKYLZ/+X6olWUIkP1jmg4noafk05F/5c9aGs3AvU42A=")
 	require.NoError(t, err)
-	privk, err := base64.StdEncoding.DecodeString("u+Eb7y2VolnhQvEYE/fNdKmieRhY9Y/ckSeLX9NVgldUj5Tf3GrK5ECpQPFFtjv8zw2Q5K1fHRE6Fqof4DJvtQ==")
+	privk, err := base64.StdEncoding.DecodeString("YPlwraDB/vC+XVtPmmXYydkzvJAbgr+wkGJ/TtntZidwpgtn/5fqiVZQiQ/WOaDiehp+TTkX/lz1oazcC9TjYA==")
 	require.NoError(t, err)
 
 	acc := crypto.Account{
@@ -224,7 +332,7 @@ func TestPokeExisting(t *testing.T) {
 		PrivateKey: privk,
 	}
 
-	appID := uint64(63)
+	appID := uint64(86)
 
 	fmt.Println("app addr:", crypto.GetApplicationAddress(appID))
 
@@ -232,52 +340,47 @@ func TestPokeExisting(t *testing.T) {
 		t,
 		TxAppCall{
 			AppID: appID,
-			Method: "Commit",
-			Args: [][]byte{
-				[]byte("ZZoo=="),
-			},
 			Sender: acc,
-		},
-		TxPayment{
-			From: acc,
-			To: crypto.GetApplicationAddress(appID),
-			Amount: 100000,
+			Method: "SetDraw",
+			Args: [][]byte{
+				b64StrToBytes(t, "abcdefA="),
+				uint64ToBytes(t, 6), // 1s
+				//uint64ToBytes(t, 61),
+				//uint64ToBytes(t, 5), // 2s
+				//uint64ToBytes(t, 51),
+				//uint64ToBytes(t, 4), // 3s
+				//uint64ToBytes(t, 41),
+				//uint64ToBytes(t, 3), // 4s
+				//uint64ToBytes(t, 31),
+				//uint64ToBytes(t, 2), // 5s
+				//uint64ToBytes(t, 21),
+				//uint64ToBytes(t, 1), // 6s
+				//uint64ToBytes(t, 500000),
+			},
 		},
 	)
 
-	algod := algodClient(t)
-
-	accAppInfo, err := algod.AccountApplicationInformation(acc.Address.String(), appID).Do(context.Background())
-	require.NoError(t, err)
-
-	appInfo, err := algod.GetApplicationByID(appID).Do(context.Background())
-
-	fmt.Println("accAppInfo:")
-	fmt.Println(" - AppId:", accAppInfo.AppLocalState.Id)
-	fmt.Println(" - locals (key,val):", accAppInfo.AppLocalState.KeyValue)
-
-	for _, loc := range accAppInfo.AppLocalState.KeyValue {
-
-		key, err := base64.StdEncoding.DecodeString(loc.Key)
-		require.NoError(t, err)
-
-		var strVal string
-		if loc.Value.Type == 1 {
-			tmp, err := base64.StdEncoding.DecodeString(loc.Value.Bytes)
-			require.NoError(t, err)
-			strVal = string(tmp)
-		} else if loc.Value.Type == 2 {
-			strVal = strconv.FormatUint(loc.Value.Uint, 10)
-		} else {
-			require.Fail(t, "Unknown type")
-		}
-
-		fmt.Println(string(key), strVal)
-
-	}
-
-	fmt.Println("appGlobalState:", appInfo.Params.GlobalState)
-
+	require.Equal(
+		t,
+		map[string]string{
+			"owner": base64.StdEncoding.EncodeToString(acc.PublicKey),
+			"numTickets": "1",
+			"draw": "abcdefA=",
+			"1s": "6",
+			"1p": "61",
+			"2s": "5",
+			"2p": "51",
+			"3s": "4",
+			"3p": "41",
+			"4s": "3",
+			"4p": "31",
+			"5s": "2",
+			"5p": "21",
+			"6s": "1",
+			"6p": "500000",
+		},
+		getAppGlobalState(t, appID),
+	)
 }
 
 func algodClient(t *testing.T) *algod.Client {
@@ -628,4 +731,18 @@ func getAppStateAsMap(t *testing.T, state []models.TealKeyValue) map[string]stri
 	}
 
 	return stateMap
+}
+
+func b64StrToBytes(t *testing.T, s string) []byte {
+
+	b, err := base64.StdEncoding.DecodeString(s)
+	require.NoError(t, err)
+	return b
+}
+
+func uint64ToBytes(t *testing.T, u uint64) []byte {
+
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, u)
+	return b
 }
