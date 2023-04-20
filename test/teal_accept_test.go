@@ -20,8 +20,17 @@ import (
 	"github.com/algorand/go-algorand-sdk/types"
 	"github.com/stretchr/testify/require"
 
-	//"encoding/hex"
+	"encoding/hex"
 )
+
+/* TODO:
+	* Allowing wagers of great than 1 algo:
+		* Wagers should also be a multiple of 1 algo (reject commitment if not)
+		* The multiple of 1 algo give you that many tickets (should multiply any winnings)
+
+	* Allow making multiple different commitments
+		* Will certainly need to be limited - when limit reached should reject additional commitments
+*/
 
 var (
 	algodHost = flag.String("algod_host", "http://localhost:4001", "Host of algod client")
@@ -31,12 +40,35 @@ var (
 	indexerHost = flag.String("indexer_host", "http://localhost:4003", "Host of indexer client")
 )
 
-func TestSome(t *testing.T) {
+func TestSomeTestSome(t *testing.T) {
 
-     //"SOnnrX/SUSd5g0Bv8dcZW/ltR/hlaCq8BqjRBrCqeBY="
-	s := "SOnnrX/SUSd5g0Bv8dcZW/ltR/hlaCq8BqjRBrCqeBY="
+	hb := hexStrToBytes(t, "010203040506")
 
-	fmt.Println(string(b64StrToBytes(t, s)))
+	b64 := b64StrToBytes(t, "ABCDEFA=")
+
+	//nums := commitmentToBytes(t, 10, 11, 12, 13, 14, 15)
+	nums := commitmentToBytes(t, 1, 2, 3, 4, 5, 6)
+
+// 1 2 3 4 5 6
+
+// 01 02 03 04 05 06
+
+// 0000 0001 0000 0010 0000 0011 0000 0100 0000 0101 0000 0110
+
+// 000000 010000 001000 000011 0000 0100 0000 0101 0000 0110
+
+// 000000 010000 001000 000011 000001 000000 010100 000110
+
+// A      Q      I      D      B      A      U      G
+
+	fmt.Println("hex:", hb)
+	fmt.Println("b64:", b64)
+	fmt.Println("nums:", nums)
+
+
+	b := base64.StdEncoding.EncodeToString(nums)
+
+	fmt.Println("encoded b64:", b)
 }
 
 type InnerTx struct {
@@ -73,7 +105,6 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 	testCases := []struct{
 		Name string
 		Txs []TxCreator
-		//Sender crypto.Account
 		ExpectTxBroadcastError bool
 		ExpectedLocalState map[types.Address]map[string]string
 		ExpectedGlobalState map[string]string
@@ -153,7 +184,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 					Sender: acc1,
 					Method: "Commit",
 					Args: [][]byte{
-						[]byte("abcdef"),
+						commitmentToBytes(t, 1, 2, 3, 4, 5, 6),
 					},
 				},
 			},
@@ -167,7 +198,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 					Sender: acc1,
 					Method: "Commit",
 					Args: [][]byte{
-						b64StrToBytes(t, "abcdefA="),
+						commitmentToBytes(t, 1, 2, 3, 4, 5, 6),
 					},
 				},
 				TxPayment{
@@ -179,7 +210,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 			ExpectedLocalState: map[types.Address]map[string]string{
 				acc1.Address: {
 					"wager": "1000000",
-					"commitment": "abcdefA=",
+					"commitment": "AQIDBAUG",
 				},
 			},
 			ExpectedGlobalState: map[string]string{
@@ -200,6 +231,158 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 			},
 		},
 		{
+			Name: "calling commit with commitment which is not ordered in 2nd byte fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 3, 1, 2, 4, 5, 6),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with commitment which is not ordered in 3rd byte fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 3, 2, 4, 5, 6),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with commitment which is not ordered in 4th byte fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 2, 4, 3, 5, 6),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with commitment which is not ordered in 5th byte fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 2, 3, 5, 4, 6),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with commitment which is not ordered in 6th byte fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 2, 3, 4, 8, 6),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with commitment with duplicate numbers fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 2, 3, 4, 8, 8),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with commitment shorter than 6 numbers fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 2, 3, 4, 8),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
+			Name: "calling commit with number greater than 63 fails",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 2, 3, 4, 10, 64),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectTxBroadcastError: true,
+		},
+		{
 			Name: "calling commit from acc2 with payment tx succeeds",
 			Txs: []TxCreator{
 				TxAppCall{
@@ -207,7 +390,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 					Sender: acc2,
 					Method: "Commit",
 					Args: [][]byte{
-						b64StrToBytes(t, "ghijklA="),
+						commitmentToBytes(t, 10, 11, 12, 13, 14, 15),
 					},
 				},
 				TxPayment{
@@ -217,9 +400,9 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 				},
 			},
 			ExpectedLocalState: map[types.Address]map[string]string{
-				acc1.Address: {
+				acc2.Address: {
 					"wager": "1000000",
-					"commitment": "abcdefA=",
+					"commitment": "CgsMDQ4P",
 				},
 			},
 			ExpectedGlobalState: map[string]string{
@@ -247,7 +430,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 					Sender: acc1,
 					Method: "SetDraw",
 					Args: [][]byte{
-						b64StrToBytes(t, "abcdefA="),
+						commitmentToBytes(t, 1, 2, 3, 4, 5, 6),
 						uint64ToBytes(t, 6), // 1s
 						uint64ToBytes(t, 61),
 						uint64ToBytes(t, 5), // 2s
@@ -273,7 +456,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 					Sender: creator,
 					Method: "SetDraw",
 					Args: [][]byte{
-						b64StrToBytes(t, "abcdefA="),
+						commitmentToBytes(t, 1, 2, 3, 4, 5, 6),
 						uint64ToBytes(t, 0), // 1s
 						uint64ToBytes(t, 10001),
 						uint64ToBytes(t, 0), // 2s
@@ -298,7 +481,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 			},
 			ExpectedGlobalState: map[string]string{
 				"numTickets": "2",
-				"draw": "abcdefA=",
+				"draw": "AQIDBAUG",
 				"1s": "0",
 				"1p": "10001",
 				"2s": "0",
@@ -335,7 +518,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 			},
 			ExpectedGlobalState: map[string]string{
 				"numTickets": "2",
-				"draw": "abcdefA=",
+				"draw": "AQIDBAUG",
 				"1s": "0",
 				"1p": "10001",
 				"2s": "0",
@@ -363,7 +546,7 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 			},
 			ExpectedGlobalState: map[string]string{
 				"numTickets": "2",
-				"draw": "abcdefA=",
+				"draw": "AQIDBAUG",
 				"1s": "0",
 				"1p": "10001",
 				"2s": "0",
@@ -388,6 +571,351 @@ func TestContractWithSingleWinningTicket(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.Name, func(t *testing.T) {
+
+			if test.ExpectTxBroadcastError {
+				requireTxBroadcastError(t, test.Txs...)
+				return
+			}
+
+			var txIDs []string
+			if len(test.Txs) > 0 {
+				txIDs = broadcastTxsAndWait(t, test.Txs...)
+			}
+
+			for addr, expectedLocalState := range test.ExpectedLocalState {
+				localState := getAppLocalState(t, appID, addr)
+				require.Equal(t, expectedLocalState, localState)
+			}
+
+			if len(test.ExpectedGlobalState) > 0 {
+				globalState := getAppGlobalState(t, appID)
+				require.Equal(t, test.ExpectedGlobalState, globalState)
+			}
+
+			if len(test.ExpectedInnerTxs) > 0 {
+				require.Equal(t, len(test.ExpectedInnerTxs), len(txIDs))
+
+				for _, expectedInnterTxs := range test.ExpectedInnerTxs {
+					if len(expectedInnterTxs) > 0 {
+						algodCl := algodClient(t)
+						pendingRes, _, err := algodCl.PendingTransactionInformation(txIDs[len(txIDs)-1]).Do(context.Background())
+						require.NoError(t, err)
+
+						require.Equal(t, len(expectedInnterTxs), len(pendingRes.InnerTxns))
+						for iTx, expected := range expectedInnterTxs {
+							actual := pendingRes.InnerTxns[iTx].Transaction.Txn
+							require.Equal(t, expected.Type, actual.Type)
+							require.Equal(t, expected.From, actual.Sender)
+							require.Equal(t, expected.To, actual.Receiver)
+							require.Equal(t, expected.Amount, uint64(actual.Amount), "Amounts not equal: %i != %i", int64(expected.Amount), int64(actual.Amount))
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestContractWithMultipleWinningTickets(t *testing.T) {
+
+	creator := crypto.GenerateAccount()
+	acc1 := crypto.GenerateAccount()
+	acc2 := crypto.GenerateAccount()
+	acc3 := crypto.GenerateAccount()
+	acc4 := crypto.GenerateAccount()
+
+	deployedAppIDs := fundAccountsAndDeployContracts(t, 2, creator, acc1, acc2, acc3, acc4)
+	require.Equal(t, 2, len(deployedAppIDs))
+	appID := deployedAppIDs[0]
+	appAddr := crypto.GetApplicationAddress(appID)
+	nextAppID := deployedAppIDs[1]
+	nextAppAddr := crypto.GetApplicationAddress(nextAppID)
+
+	fmt.Println("deployed apps:")
+	fmt.Println(appID, appAddr)
+	fmt.Println(nextAppID, nextAppAddr)
+
+
+	fmt.Println("Creator:")
+	fmt.Println("addr:", creator.Address.String())
+	fmt.Println("pub key:", base64.StdEncoding.EncodeToString(creator.PublicKey))
+	fmt.Println("priv key:", base64.StdEncoding.EncodeToString(creator.PrivateKey))
+
+	testCases := []struct{
+		Name string
+		Txs []TxCreator
+		ExpectTxBroadcastError bool
+		ExpectedLocalState map[types.Address]map[string]string
+		ExpectedGlobalState map[string]string
+		ExpectedInnerTxs [][]InnerTx
+	}{
+		{
+			Name: "opt-in to app",
+			Txs: []TxCreator{
+				TxAppOptIn{
+					AppID: appID,
+					Sender: acc1,
+				},
+				TxAppOptIn{
+					AppID: appID,
+					Sender: acc2,
+				},
+				TxAppOptIn{
+					AppID: appID,
+					Sender: acc3,
+				},
+				TxAppOptIn{
+					AppID: appID,
+					Sender: acc4,
+				},
+			},
+		},
+		{
+			Name: "acc1 commit",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc1,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 0, 5, 10, 15, 20, 25),
+					},
+				},
+				TxPayment{
+					From: acc1,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectedLocalState: map[types.Address]map[string]string{
+				acc1.Address: {
+					"wager": "1000000",
+					"commitment": "AAUKDxQZ",
+				},
+			},
+		},
+		{
+			Name: "acc2 commit",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 0, 10, 20, 30, 40, 50),
+					},
+				},
+				TxPayment{
+					From: acc2,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectedLocalState: map[types.Address]map[string]string{
+				acc2.Address: {
+					"wager": "1000000",
+					"commitment": "AAoUHigy",
+				},
+			},
+		},
+		{
+			Name: "acc3 commit",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc3,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 10, 15, 25, 40, 50),
+					},
+				},
+				TxPayment{
+					From: acc3,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectedLocalState: map[types.Address]map[string]string{
+				acc3.Address: {
+					"wager": "1000000",
+					"commitment": "AQoPGSgy",
+				},
+			},
+		},
+		{
+			Name: "acc4 commit",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc4,
+					Method: "Commit",
+					Args: [][]byte{
+						commitmentToBytes(t, 1, 10, 20, 25, 62, 63),
+					},
+				},
+				TxPayment{
+					From: acc4,
+					To: appAddr,
+					Amount: 1000000,
+				},
+			},
+			ExpectedLocalState: map[types.Address]map[string]string{
+				acc4.Address: {
+					"wager": "1000000",
+					"commitment": "AQoUGT4/",
+				},
+			},
+		},
+		{
+			Name: "creator sets draw succeeds - rollover amount not send because amount too small",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: creator,
+					Method: "SetDraw",
+					Args: [][]byte{
+						commitmentToBytes(t, 0, 10, 15, 20, 25, 63),
+						uint64ToBytes(t, 0), // 1s
+						uint64ToBytes(t, 0),
+						uint64ToBytes(t, 0), // 2s
+						uint64ToBytes(t, 10_001),
+						uint64ToBytes(t, 3), // 3s
+						uint64ToBytes(t, 30_002),
+						uint64ToBytes(t, 0), // 4s
+						uint64ToBytes(t, 60_004),
+						uint64ToBytes(t, 1), // 5s
+						uint64ToBytes(t, 500_000),
+						uint64ToBytes(t, 0), // 6s
+						uint64ToBytes(t, 1_000_000),
+					},
+					ForeignApps: []uint64{
+						nextAppID,
+					},
+					Accounts: []string{
+						nextAppAddr.String(),
+					},
+					FlatFee: types.MicroAlgos(3000),
+				},
+			},
+			ExpectedGlobalState: map[string]string{
+				"numTickets": "4",
+				"draw": "AAoPFBk/",
+				"1s": "0",
+				"1p": "0",
+				"2s": "0",
+				"2p": "10001",
+				"3s": "3",
+				"3p": "30002",
+				"4s": "0",
+				"4p": "60004",
+				"5s": "1",
+				"5p": "500000",
+				"6s": "0",
+				"6p": "1000000",
+			},
+			ExpectedInnerTxs: [][]InnerTx{
+				{
+					{
+						Type: types.PaymentTx,
+						From: appAddr,
+						To: creator.Address,
+						Amount: 400_000,
+					},
+					{
+						Type: types.PaymentTx,
+						From: appAddr,
+						To: nextAppAddr,
+						Amount: 1_070_005,
+					},
+				},
+			},
+		},
+		{
+			Name: "calling claim from acc2 succeeds - wins one third of 3 number pool rounded down",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc2,
+					Method: "Claim",
+					FlatFee: types.MicroAlgos(2000),
+				},
+			},
+			ExpectedLocalState: map[types.Address]map[string]string{
+				acc2.Address: {
+					"wager": "0",
+					"commitment": "",
+				},
+			},
+			ExpectedGlobalState: map[string]string{
+				"numTickets": "4",
+				"draw": "AAoPFBk/",
+				"1s": "0",
+				"1p": "0",
+				"2s": "0",
+				"2p": "10001",
+				"3s": "2",
+				"3p": "20002",
+				"4s": "0",
+				"4p": "60004",
+				"5s": "1",
+				"5p": "500000",
+				"6s": "0",
+				"6p": "1000000",
+			},
+			ExpectedInnerTxs: [][]InnerTx{
+				{
+					{
+						Type: types.PaymentTx,
+						From: appAddr,
+						To: acc1.Address,
+						Amount: 10000,
+					},
+				},
+			},
+		},
+/*
+		{
+			Name: "calling claim from acc1 succeeds - wins 5 number pool",
+			Txs: []TxCreator{
+				TxAppCall{
+					AppID: appID,
+					Sender: acc1,
+					Method: "Claim",
+					FlatFee: types.MicroAlgos(2000),
+				},
+			},
+			ExpectedGlobalState: map[string]string{
+				"numTickets": "2",
+				"draw": "AQIDBAUG",
+				"1s": "0",
+				"1p": "10001",
+				"2s": "0",
+				"2p": "10002",
+				"3s": "0",
+				"3p": "10003",
+				"4s": "0",
+				"4p": "10004",
+				"5s": "0",
+				"5p": "10005",
+				"6s": "1",
+				"6p": "500000",
+			},
+			ExpectedInnerTxs: [][]InnerTx{
+				{
+					{
+						Type: types.PaymentTx,
+						From: appAddr,
+						To: acc1.Address,
+						Amount: 500000,
+					},
+				},
+			},
+		},
+*/
 	}
 
 	for _, test := range testCases {
@@ -930,6 +1458,23 @@ func getAppStateAsMap(t *testing.T, state []models.TealKeyValue) map[string]stri
 	}
 
 	return stateMap
+}
+
+func commitmentToBytes(t *testing.T, commitment ...int8) []byte {
+
+	retval := make([]byte, len(commitment))
+	for i, num := range commitment {
+		retval[i] = byte(num)
+	}
+	return retval
+}
+
+func hexStrToBytes(t *testing.T, s string) []byte {
+
+	dest := make([]byte, hex.DecodedLen(len(s)))
+	_, err := hex.Decode(dest, []byte(s))
+	require.NoError(t, err)
+	return dest
 }
 
 func b64StrToBytes(t *testing.T, s string) []byte {

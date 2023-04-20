@@ -39,15 +39,15 @@ byte "Claim"
 bnz main_l11
 err
 main_l11:
-callsub claim_5
+callsub claim_6
 main_l12:
 int 0
 return
 main_l13:
-callsub setdraw_4
+callsub setdraw_5
 b main_l12
 main_l14:
-callsub commit_2
+callsub commit_3
 b main_l12
 main_l15:
 int 0
@@ -127,8 +127,60 @@ app_local_put
 int 1
 return
 
+// is_valid_commitment
+isvalidcommitment_2:
+store 0
+load 0
+int 0
+getbyte
+store 1
+load 0
+int 1
+getbyte
+store 2
+load 0
+int 2
+getbyte
+store 3
+load 0
+int 3
+getbyte
+store 4
+load 0
+int 4
+getbyte
+store 5
+load 0
+int 5
+getbyte
+store 6
+load 1
+load 2
+<
+load 2
+load 3
+<
+&&
+load 3
+load 4
+<
+&&
+load 4
+load 5
+<
+&&
+load 5
+load 6
+<
+&&
+load 6
+int 64
+<
+&&
+retsub
+
 // commit
-commit_2:
+commit_3:
 global GroupSize
 int 2
 ==
@@ -160,6 +212,9 @@ txn NumAppArgs
 int 2
 ==
 &&
+txna ApplicationArgs 1
+callsub isvalidcommitment_2
+&&
 assert
 txn Sender
 byte "wager"
@@ -179,95 +234,95 @@ int 1
 return
 
 // rollover_amount
-rolloveramount_3:
+rolloveramount_4:
 int 0
-store 6
+store 13
 txna ApplicationArgs 2
 btoi
 int 0
 ==
-bnz rolloveramount_3_l11
-rolloveramount_3_l1:
+bnz rolloveramount_4_l11
+rolloveramount_4_l1:
 txna ApplicationArgs 4
 btoi
 int 0
 ==
-bnz rolloveramount_3_l10
-rolloveramount_3_l2:
+bnz rolloveramount_4_l10
+rolloveramount_4_l2:
 txna ApplicationArgs 6
 btoi
 int 0
 ==
-bnz rolloveramount_3_l9
-rolloveramount_3_l3:
+bnz rolloveramount_4_l9
+rolloveramount_4_l3:
 txna ApplicationArgs 8
 btoi
 int 0
 ==
-bnz rolloveramount_3_l8
-rolloveramount_3_l4:
+bnz rolloveramount_4_l8
+rolloveramount_4_l4:
 txna ApplicationArgs 10
 btoi
 int 0
 ==
-bnz rolloveramount_3_l7
-rolloveramount_3_l5:
+bnz rolloveramount_4_l7
+rolloveramount_4_l5:
 txna ApplicationArgs 12
 btoi
 int 0
 ==
-bz rolloveramount_3_l12
-load 6
+bz rolloveramount_4_l12
+load 13
 txna ApplicationArgs 13
 btoi
 +
-store 6
-b rolloveramount_3_l12
-rolloveramount_3_l7:
-load 6
+store 13
+b rolloveramount_4_l12
+rolloveramount_4_l7:
+load 13
 txna ApplicationArgs 11
 btoi
 +
-store 6
-b rolloveramount_3_l5
-rolloveramount_3_l8:
-load 6
+store 13
+b rolloveramount_4_l5
+rolloveramount_4_l8:
+load 13
 txna ApplicationArgs 9
 btoi
 +
-store 6
-b rolloveramount_3_l4
-rolloveramount_3_l9:
-load 6
+store 13
+b rolloveramount_4_l4
+rolloveramount_4_l9:
+load 13
 txna ApplicationArgs 7
 btoi
 +
-store 6
-b rolloveramount_3_l3
-rolloveramount_3_l10:
-load 6
+store 13
+b rolloveramount_4_l3
+rolloveramount_4_l10:
+load 13
 txna ApplicationArgs 5
 btoi
 +
-store 6
-b rolloveramount_3_l2
-rolloveramount_3_l11:
-load 6
+store 13
+b rolloveramount_4_l2
+rolloveramount_4_l11:
+load 13
 txna ApplicationArgs 3
 btoi
 +
-store 6
-b rolloveramount_3_l1
-rolloveramount_3_l12:
-load 6
+store 13
+b rolloveramount_4_l1
+rolloveramount_4_l12:
+load 13
 retsub
 
 // set_draw
-setdraw_4:
+setdraw_5:
 int 1
 app_params_get AppAddress
-store 3
-store 2
+store 10
+store 9
 txn Sender
 global CreatorAddress
 ==
@@ -303,7 +358,7 @@ txn ApplicationID
 &&
 int 1
 txnas Accounts
-load 2
+load 9
 ==
 &&
 assert
@@ -360,44 +415,44 @@ btoi
 app_global_put
 global CurrentApplicationAddress
 acct_params_get AcctBalance
-store 1
-store 0
-load 0
+store 8
+store 7
+load 7
 int 10
 /
-store 4
-callsub rolloveramount_3
-store 5
+store 11
+callsub rolloveramount_4
+store 12
 itxn_begin
 int pay
 itxn_field TypeEnum
 global CreatorAddress
 itxn_field Receiver
-load 4
+load 11
 itxn_field Amount
 int 0
 itxn_field Fee
-load 5
+load 12
 int 100000
 >
-bz setdraw_4_l2
+bz setdraw_5_l2
 itxn_next
 int pay
 itxn_field TypeEnum
 int 1
 txnas Accounts
 itxn_field Receiver
-load 5
+load 12
 itxn_field Amount
 int 0
 itxn_field Fee
-setdraw_4_l2:
+setdraw_5_l2:
 itxn_submit
 int 1
 return
 
 // claim
-claim_5:
+claim_6:
 global GroupSize
 int 1
 ==

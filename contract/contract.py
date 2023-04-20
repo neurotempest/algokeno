@@ -61,6 +61,33 @@ def approval():
       Approve(),
     )
 
+  @Subroutine(TealType.uint64)
+  def is_valid_commitment(c: Expr):
+    num_0 = ScratchVar()
+    num_1 = ScratchVar()
+    num_2 = ScratchVar()
+    num_3 = ScratchVar()
+    num_4 = ScratchVar()
+    num_5 = ScratchVar()
+    return Seq(
+      num_0.store(GetByte(c, Int(0))),
+      num_1.store(GetByte(c, Int(1))),
+      num_2.store(GetByte(c, Int(2))),
+      num_3.store(GetByte(c, Int(3))),
+      num_4.store(GetByte(c, Int(4))),
+      num_5.store(GetByte(c, Int(5))),
+      Return(
+        And(
+          num_0.load() < num_1.load(),
+          num_1.load() < num_2.load(),
+          num_2.load() < num_3.load(),
+          num_3.load() < num_4.load(),
+          num_4.load() < num_5.load(),
+          num_5.load() < Int(64),
+        ),
+      ),
+    )
+
   @Subroutine(TealType.none)
   def commit():
     return Seq(
@@ -76,6 +103,8 @@ def approval():
           Gtxn[1].close_remainder_to() == Global.zero_address(),
 
           Txn.application_args.length() == Int(2),
+
+          is_valid_commitment(Txn.application_args[1]),
         ),
       ),
       App.localPut(Txn.sender(), local_wager, Gtxn[1].amount()),
